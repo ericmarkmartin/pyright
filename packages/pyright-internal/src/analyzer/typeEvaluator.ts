@@ -25130,6 +25130,27 @@ export function createTypeEvaluator(
                     );
                 }
 
+                // Handle the case where the source is a enum type with one
+                // member and the destination is a literal for that member
+                // (which represents a complete "union" of all enum members when
+                // there's only one member in the enum). Per the typing spec, a
+                // complete union of all enum literal members is equivalent to
+                // the enum type itself.
+                if (
+                    destType.priv.literalValue !== undefined &&
+                    ClassType.isSameGenericClass(destType, concreteSrcType) &&
+                    concreteSrcType.priv.literalValue === undefined &&
+                    ClassType.isEnumClass(concreteSrcType)
+                ) {
+                    const enumLiterals = enumerateLiteralsForType(evaluatorInterface, concreteSrcType);
+                    if (enumLiterals && enumLiterals.length === 1) {
+                        // Single-member enum: Literal[E.ONLY] is the complete union
+                        if (isTypeSame(enumLiterals[0], destType)) {
+                            return true;
+                        }
+                    }
+                }
+
                 if (
                     destType.priv.literalValue !== undefined &&
                     ClassType.isSameGenericClass(destType, concreteSrcType)
@@ -26097,6 +26118,28 @@ export function createTypeEvaluator(
             }
 
             return true;
+        }
+
+        // Handle the case where the source is a non-literal enum type and the
+        // destination union contains all literal members of that enum.
+        // Per the typing spec, a complete union of all enum literal members
+        // is equivalent to the enum type itself.
+        if (isClassInstance(srcType) && ClassType.isEnumClass(srcType) && srcType.priv.literalValue === undefined) {
+            const enumLiterals = enumerateLiteralsForType(evaluatorInterface, srcType);
+            if (enumLiterals && enumLiterals.length > 0) {
+                const allLiteralsInDest = enumLiterals.every((literal) =>
+                    UnionType.containsType(
+                        destType,
+                        literal,
+                        /* options */ undefined,
+                        /* exclusionSet */ undefined,
+                        recursionCount
+                    )
+                );
+                if (allLiteralsInDest) {
+                    return true;
+                }
+            }
         }
 
         // For union destinations, we just need to match one of the types.
